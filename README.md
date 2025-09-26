@@ -1,11 +1,71 @@
 # Spark Blinky Project
 
-1. [IDE Setup](#ide-setup)
-2. [Importing Project](#import-project)
-3. [Project Structure](#project-structure)
-3. [LED Processor Structure](#led-processor-structure)
-4. [LED Lib Structure](#led-lib-structure)
-5. [Future Improvements](#future-improvements)
+1. [Project Details](#project-details)
+2. [LED Processor Structure](#led-processor-structure)
+3. [LED Lib Structure](#led-lib-structure)
+4. [IDE Setup](#ide-setup)
+5. [Importing Project](#import-project)
+6. [Project Structure](#project-structure)
+7. [Future Improvements](#future-improvements)
+
+## Project Details
+For any project I develop, design, or architect, the first assumption is that it must be reusable.  So, I will always work to make something that is portable.  Any _processing_ code that is written, should be done in a way that is agnostic to a specific MCU, giving the code the flexibility to be moved to different MCUs, RTOSes, or SDKs.
+
+I find the best way to do that, is to create a processor that uses generic, non-SDK specific API calls, and kept strictly within the confines of C libraries.  So, I generally follow a paradigm of creating a struct that contains pointers to function calls whenever an interaction with an API or SDK that is specific to an MCU.  I will also try and keep that number of functions to a minimum.  For example, within this project, turn_led_on() and turn_led_off() both interact with SDK by calling on led_set_polarity() and passing in a state to be ON or OFF.  Then, on the application side, it writes to the GPIO API to set LED output.  This limits the applicaiton function to one, while allowing the LED library multiple different variations of LED state changes.
+
+Part of the project structure is to also have the application code for the LED library separate from the rest of the "main" application code.  This keeps the main loop and app.c clean and readable.  As a project grows, each specific peripheral will get its own library, its own driver, and its own place within the project structure.
+
+Another design paradigm that I make sure to use in a project such as this, is the use of Interrupts.  This allows the main loop to continue to do other processing, while the interrupt can handle library or peripheral specific code.  As a general rule, an Interrupt routine should be kept as short as possible, such as setting a flag.  In this particular project, toggling the LEDs is a fast enough process to keep within the Interrupt Service Routine, to be able to cleanly separate the LED interactions from any other processing or actions that might take place in the main loop.
+
+Overall, the project structure allows for:
+- portability
+- separation from processes
+- use within several different OSes
+- clean, readable code
+
+The remaining of the README is further explanation on LED processor and library, and how to import and build the project, as well as any issues or bugs that I found along the way.
+
+## LED Processor Structure
+This is an LED library intended for Generic MCU agnostic processing of LEDs, LED states, and other processing.  It contains public functions that can be called from anywhere within the application, so long as the led_proc.h is included, and the led_proc_t is properly setup and intialized.  The most critical parts of the led_proc are the led_proc_t and the led_t structures.  The two structs are further explained below, although are also documented within the led_proc.h file, as are each of the function calls available.
+
+### led_proc_t
+Documentation is provided within the led_proc.h on the purpose of part of the structure.  This is a structure that is maintained by the application, and is always passed in to the led_proc function calls to provide a reference to the MCU, SDK, and application specific HAL libraries; and allows the led_proc library to be completely portable.
+```
+typedef struct led_proc_t {
+	led_proc_error_type (*led_init)(led_t*);
+	led_proc_error_type (*led_set_polarity)(led_t*, led_output_state_t);
+	led_proc_error_type (*led_set_duty_cycle)(led_t*, int);
+	led_proc_error_type (*led_get_state)(led_t*, int*);
+	led_proc_error_type (*led_deinit)(led_t*);
+	led_t *led_array;
+	void *led_typedef;
+}led_proc_t;
+```
+
+### led_t
+The led_t structure allows the led_proc to remain generic.  The led_t struct is used and passed wtihin the library in order to keep the MCU and SDK specific GPIO Typedef completely removed from the actual processing.  The only requirement is for the user to update the typedef of the led_ptr.  A warning is generated during compilation to remind the user to update this in the led_proc.h file.
+```
+#warning "User Must Change GPIO_PinTypeDef to correct SDK GPIO Typedef"
+typedef struct LED {
+	GPIO_PinTypeDef led_ptr;
+	led_type_t led_type;
+	union led_state_t led_state;
+	int led_pwm_hertz;
+}led_t;
+```
+
+## LED Lib Structure
+The led_lib is where the led_proc_t is initialized and maintained, and contains the functions required tying the led_proc to the TLS8258 SDK, and additionally contains the user code for generating the blinky and pulsing LEDs.
+
+### Timer0
+In the init_led_lib, Timer0 is initialized and started to generate an interrupt every 500ms.  It is within the interrupt that LED output states are modified.  This allows the user to not have to call on a thread or processor sleep and continue to use the while loop to do other processing.
+
+### Timer1
+A second timer is initialized and started which continually updates a user readable register.  This is used in the user code while loop, to check _if_ a certain time period has passed, and update the PWM Duty Cycle of the White LED.  This is intended to provide proof that the processing of the LED outputs from Timer0 can be separately processed by Timer1 within the while loop.
+
+### Bug Fixes and Workarounds
+It was required to add in a workaround for a bug in the SDK with the read_gpio function.  At least for outputs, the read_gpio(pin) always returned a 0 regardless of the actual state of the output pin.  This required the application code to always know and maintain the state of each output pin to make sure the led_proc functioned properly.
+
 
 ## IDE and SDK Setup
 This project was developed and built in [Telink IoT Studio v2025.02](https://wiki.telink-semi.cn/wiki/IDE-and-Tools/Telink_IoT_Studio/).  Telink IoT Studio is required for compiling and building.
@@ -101,47 +161,6 @@ This is the Board Support Package header file, which includes minimal setup and 
 ### lib
 The lib folder contains the LED Library.
 
-
-## LED Processor Structure
-This is an LED library intended for Generic MCU agnostic processing of LEDs, LED states, and other processing.  It contains public functions that can be called from anywhere within the application, so long as the led_proc.h is included, and the led_proc_t is properly setup and intialized.  The most critical parts of the led_proc are the led_proc_t and the led_t structures.  The two structs are further explained below, although are also documented within the led_proc.h file, as are each of the function calls available.
-
-### led_proc_t
-Documentation is provided within the led_proc.h on the purpose of part of the structure.  This is a structure that is maintained by the application, and is always passed in to the led_proc function calls to provide a reference to the MCU, SDK, and application specific HAL libraries; and allows the led_proc library to be completely portable.
-```
-typedef struct led_proc_t {
-	led_proc_error_type (*led_init)(led_t*);
-	led_proc_error_type (*led_set_polarity)(led_t*, led_output_state_t);
-	led_proc_error_type (*led_set_duty_cycle)(led_t*, int);
-	led_proc_error_type (*led_get_state)(led_t*, int*);
-	led_proc_error_type (*led_deinit)(led_t*);
-	led_t *led_array;
-	void *led_typedef;
-}led_proc_t;
-```
-
-### led_t
-The led_t structure allows the led_proc to remain generic.  The led_t struct is used and passed wtihin the library in order to keep the MCU and SDK specific GPIO Typedef completely removed from the actual processing.  The only requirement is for the user to update the typedef of the led_ptr.  A warning is generated during compilation to remind the user to update this in the led_proc.h file.
-```
-#warning "User Must Change GPIO_PinTypeDef to correct SDK GPIO Typedef"
-typedef struct LED {
-	GPIO_PinTypeDef led_ptr;
-	led_type_t led_type;
-	union led_state_t led_state;
-	int led_pwm_hertz;
-}led_t;
-```
-
-## LED Lib Structure
-The led_lib is where the led_proc_t is initialized and maintained, and contains the functions required tying the led_proc to the TLS8258 SDK, and additionally contains the user code for generating the blinky and pulsing LEDs.
-
-### Timer0
-In the init_led_lib, Timer0 is initialized and started to generate an interrupt every 500ms.  It is within the interrupt that LED output states are modified.  This allows the user to not have to call on a thread or processor sleep and continue to use the while loop to do other processing.
-
-### Timer1
-A second timer is initialized and started which continually updates a user readable register.  This is used in the user code while loop, to check _if_ a certain time period has passed, and update the PWM Duty Cycle of the White LED.  This is intended to provide proof that the processing of the LED outputs from Timer0 can be separately processed by Timer1 within the while loop.
-
-### Bug Fixes and Workarounds
-It was required to add in a workaround for a bug in the SDK with the read_gpio function.  At least for outputs, the read_gpio(pin) always returned a 0 regardless of the actual state of the output pin.  This required the application code to always know and maintain the state of each output pin to make sure the led_proc functioned properly.
 
 ## Future Improvements
 ### More PWM Support
