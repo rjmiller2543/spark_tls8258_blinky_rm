@@ -3,8 +3,8 @@
 1. [Project Details](#project-details)
 2. [LED Processor Structure](#led-processor-structure)
 3. [LED Lib Structure](#led-lib-structure)
-4. [IDE Setup](#ide-setup)
-5. [Importing Project](#import-project)
+4. [IDE Setup](#ide-and-sdk-setup)
+5. [Importing Project](#importing-project)
 6. [Project Structure](#project-structure)
 7. [Future Improvements](#future-improvements)
 
