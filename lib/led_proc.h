@@ -28,9 +28,15 @@ typedef enum LED_TYPE {
 	LED_TYPE_PWM
 }led_type_t;
 
+typedef struct led_pwm_state_t{
+	int led_pwm_hertz;
+	int led_duty_cycle;
+	void * led_pwm_info;	// optional generic void to define and make a struct on application side to reference any other pwm specific APIs required
+}led_pwm_state_t;
+
 union led_state_t {
 	led_output_state_t led_output_state;
-	int led_duty_cycle;
+	led_pwm_state_t led_pwm_state;
 };
 
 /******* NOTE! *******

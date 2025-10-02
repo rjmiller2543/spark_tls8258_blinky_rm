@@ -72,14 +72,14 @@ led_proc_error_type init_led(led_t * led)
 	}
 	else if (led->led_type == LED_TYPE_PWM)
 	{
-		gpio_set_func(led->led_ptr, AS_PWM2_N);			// white LED GPIO is on PWM2, this is being hard coded here, but needs to be NOTED
-		pwm_set_mode(PWM2_ID, PWM_NORMAL_MODE);
-		pwm_set_cycle_and_duty(PWM2_ID, 1000 * CLOCK_SYS_CLOCK_1US, 0);			// initialize the Duty Cycle to 0 and let the processor set the DC
-		pwm_set_interrupt_enable(PWM_IRQ_PWM2_FRAME);
-		irq_set_mask(FLD_IRQ_SW_PWM_EN);
+		app_led_pwm_info_t * info = (app_led_pwm_info_t *)led->led_state.led_pwm_state.led_pwm_info;
+		gpio_set_func(led->led_ptr, info->pwm_type);			// white LED GPIO is on PWM2, this is being hard coded here, but needs to be NOTED
+		pwm_set_mode(info->id, info->mode);
+		pwm_set_cycle_and_duty(info->id, led->led_state.led_pwm_state.led_pwm_hertz * CLOCK_SYS_CLOCK_1US, led->led_state.led_pwm_state.led_duty_cycle);			// initialize the Duty Cycle to 0 and let the processor set the DC
+		pwm_set_interrupt_enable(info->irq);
 		irq_enable();
-		pwm_start(PWM2_ID);
-		led->led_state.led_duty_cycle = 0;
+		pwm_start(info->id);
+		//led->led_state.led_pwm_state.led_duty_cycle = 0;
 	}
 	return LED_PROC_ERROR_TYPE_NONE;
 }
@@ -94,7 +94,8 @@ led_proc_error_type set_led_polarity(led_t * led, led_output_state_t state)
 
 led_proc_error_type set_led_duty_cycle(led_t * led, int pwm_dc)
 {
-	pwm_set_cmp(PWM2_ID, pwm_dc * 10 * CLOCK_SYS_CLOCK_1US);
+	app_led_pwm_info_t * info = (app_led_pwm_info_t *)led->led_state.led_pwm_state.led_pwm_info;
+	pwm_set_cmp(info->id, pwm_dc * 10 * CLOCK_SYS_CLOCK_1US);
 	return LED_PROC_ERROR_TYPE_NONE;
 }
 
@@ -124,6 +125,12 @@ void init_led_lib()
 	led_proc.led_get_state = get_state_of_led;
 	led_proc.led_deinit = deinit_led;
 
+	white_led_pwm_info.id = PWM2_ID;
+	white_led_pwm_info.irq = PWM_IRQ_PWM2_FRAME;
+	white_led_pwm_info.mode = PWM_NORMAL_MODE;
+	white_led_pwm_info.pwm_type = AS_PWM2_N;
+	white_led.led_state.led_pwm_state.led_pwm_info = &white_led_pwm_info;
+
 	bsp_leds[LED_RED_NUM] = red_led;
 	bsp_leds[LED_WHITE_NUM] = white_led;
 	bsp_leds[LED_GREEN_NUM] = green_led;
@@ -133,7 +140,7 @@ void init_led_lib()
 
 	init_led_proc(&led_proc, bsp_leds, NUM_LEDS);
 
-	timer0_set_mode(TIMER_MODE_SYSCLK,0,500 * CLOCK_SYS_CLOCK_1MS);
+	timer0_set_mode(TIMER_MODE_SYSCLK,0,LED_TIMER_MS * CLOCK_SYS_CLOCK_1MS);
 	timer_start(TIMER0);
 	irq_enable();
 }
@@ -153,14 +160,14 @@ void run_led_loop()
 			{
 				set_led_num_pwm_duty_cycle(&led_proc, LED_WHITE_NUM, pwm_dc);
 				pwm_dc += 1;
-				if (pwm_dc > 95)
+				if (pwm_dc > LED_PWM_DIMMEST)
 					pwm_up = 0;
 			}
 			else
 			{
 				set_led_num_pwm_duty_cycle(&led_proc, LED_WHITE_NUM, pwm_dc);
 				pwm_dc -= 1;
-				if (pwm_dc < 50)
+				if (pwm_dc < LED_PWM_BRIGHTEST)
 					pwm_up = 1;
 			}
 			reg_tmr1_tick = 0;
